@@ -1,60 +1,100 @@
-import os
-import time
 import logging
+import time
+from json import JSONDecodeError
+from os import getenv
 
 import requests
-import telegram
+from telegram import Bot
 from dotenv import load_dotenv
-from logging.handlers import RotatingFileHandler
-
 
 load_dotenv()
 
-
-PRAKTIKUM_TOKEN = os.getenv('PRAKTIKUM_TOKEN')
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+PRAKTIKUM_TOKEN = getenv('PRAKTIKUM_TOKEN')
+TELEGRAM_TOKEN = getenv('TELEGRAM_TOKEN')
+CHAT_ID = getenv('TELEGRAM_CHAT_ID')
 API_URL = 'https://praktikum.yandex.ru/api/user_api/homework_statuses/'
 LOG_FILE = 'homework.log'
+HEADERS = {'Authorization': f'OAuth {PRAKTIKUM_TOKEN}'}
+STATUSES_VERDICTS = {
+    'rejected': 'К сожалению в работе нашлись ошибки.',
+    'reviewing': 'Работу взяли на проверку.',
+    'approved': ('Ревьюеру всё понравилось, можно приступать'
+                 ' к следующему уроку.')
+}
+ERROR_MESSAGE = ('Сбой соединения с сервером.\n'
+                 'URL: {url}.\n'
+                 'Заголовок: {headers}.\n'
+                 'Параметры: {timestamp}.\n'
+                 'Описание/код ошибки: {error}.')
 
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger_format = logging.Formatter('%(asctime)s, %(levelname)s, %(message)s')
-handler = RotatingFileHandler(
+logging.basicConfig(
+    level=logging.DEBUG,
     filename=LOG_FILE,
-    maxBytes=50 * 1024,
-    backupCount=5
+    filemode='a',
+    format='%(asctime)s, %(levelname)s, %(message)s'
 )
-handler.setFormatter(logger_format)
-logger.addHandler(handler)
+logger = logging.getLogger(__name__)
+
+
+class UnexpectedStatus(Exception):
+    pass
+
+
+class ServerFailure(Exception):
+    pass
 
 
 def parse_homework_status(homework):
-    homework_name = homework.get('homework_name')
-    homework_status = homework.get('status')
-    if homework_status == 'rejected':
-        verdict = 'К сожалению в работе нашлись ошибки.'
-        logger.debug(msg=f'В работе {homework_name} найдены ошибки.')
-    elif homework_status == 'reviewing':
-        verdict = 'Работу взяли на проверку.'
-        logger.debug(msg=f'Работу {homework_name} взяли в работу.')
-    else:
-        verdict = ('Ревьюеру всё понравилось, можно приступать'
-                   ' к следующему уроку.')
-        logger.debug(msg=f'Работа {homework_name} принята')
-    return f'У вас проверили работу "{homework_name}"!\n\n{verdict}'
+    SUMMARY = 'У вас проверили работу "{name}"!\n\n{verdict}'
+    LOG = 'Работа {name}. Вердикт {verdict}'
+
+    name, status = homework['homework_name'], homework['status']
+    if status not in STATUSES_VERDICTS:
+        raise UnexpectedStatus(f'Получен неожиданный статус: {status}')
+    verdict = STATUSES_VERDICTS[status]
+    logger.debug(msg=LOG.format(name=name, verdict=verdict))
+    return SUMMARY.format(name=name, verdict=verdict)
 
 
 def get_homework_statuses(current_timestamp):
-    homework_statuses = requests.get(
-        API_URL,
-        headers={'Authorization': 'OAuth {}'.format(PRAKTIKUM_TOKEN)},
-        params={'from_date': current_timestamp}
-    )
-    if not homework_statuses.json().get('homeworks'):
-        logger.debug(msg='Изменений в статусе работ нет')
-    return homework_statuses.json()
+    try:
+        response = requests.get(
+            API_URL,
+            headers=HEADERS,
+            params={'from_date': current_timestamp}
+        )
+    except Exception as error:
+        logger.error(exc_info=True, msg='Сбой соединения')
+        raise JSONDecodeError(
+            ERROR_MESSAGE.format(
+                url=API_URL,
+                headers=HEADERS,
+                timestamp=current_timestamp,
+                error=error
+            )
+        )
+    homework = response.json()
+    if 'error' in homework:
+        logger.error(exc_info=True, msg='Отказ сервера')
+        raise ServerFailure(
+            ERROR_MESSAGE.format(
+                url=API_URL,
+                headers=HEADERS,
+                timestamp=current_timestamp,
+                error=homework.get('error')
+            )
+        )
+    if 'code' in homework:
+        logger.error(exc_info=True, msg='Отказ сервера')
+        raise ServerFailure(
+            ERROR_MESSAGE.format(
+                url=API_URL,
+                headers=HEADERS,
+                timestamp=current_timestamp,
+                error=homework.get('code')
+            )
+        )
+    return homework
 
 
 def send_message(message, bot_client):
@@ -62,8 +102,8 @@ def send_message(message, bot_client):
 
 
 def main():
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    logger.debug(msg='Инициализация')
+    bot = Bot(token=TELEGRAM_TOKEN)
+    logger.debug(msg='{:-^40}'.format(' Инициализация бота '))
     current_timestamp = int(time.time())
 
     while True:
