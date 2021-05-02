@@ -21,11 +21,6 @@ STATUSES_VERDICTS = {
     'approved': ('Ревьюеру всё понравилось, можно приступать'
                  ' к следующему уроку.')
 }
-ERROR_MESSAGE = ('Сбой соединения с сервером.\n'
-                 'URL: {url}.\n'
-                 'Заголовок: {headers}.\n'
-                 'Параметры: {timestamp}.\n'
-                 'Описание/код ошибки: {error}.')
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -57,6 +52,12 @@ def parse_homework_status(homework):
 
 
 def get_homework_statuses(current_timestamp):
+    ERROR_MESSAGE = ('Сбой соединения с сервером.\n'
+                     'URL: {url}.\n'
+                     'Заголовок: {headers}.\n'
+                     'Параметры: {timestamp}.\n'
+                     'Описание/код ошибки: {error}.')
+
     try:
         response = requests.get(
             API_URL,
@@ -114,9 +115,7 @@ def main():
                     new_homework.get('homeworks')[0]
                 )
                 send_message(text_message, bot)
-                logger.info(
-                    msg=f'Сообщение отправлено в чат (Текст {text_message})'
-                )
+                logger.info(msg=f'Сообщение "{text_message}" отправлено')
             current_timestamp = new_homework.get(
                 'current_date', current_timestamp
             )
