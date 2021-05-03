@@ -1,6 +1,5 @@
 import logging
 import time
-from json import JSONDecodeError
 from os import getenv
 
 import requests
@@ -35,6 +34,10 @@ class UnexpectedStatus(Exception):
     pass
 
 
+class NetworkFailure(Exception):
+    pass
+
+
 class ServerFailure(Exception):
     pass
 
@@ -66,7 +69,7 @@ def get_homework_statuses(current_timestamp):
         )
     except Exception as error:
         logger.error(exc_info=True, msg='Сбой соединения')
-        raise JSONDecodeError(
+        raise NetworkFailure(
             ERROR_MESSAGE.format(
                 url=API_URL,
                 headers=HEADERS,
@@ -99,6 +102,7 @@ def get_homework_statuses(current_timestamp):
 
 
 def send_message(message, bot_client):
+    logger.info(msg=f'Сообщение "{message}" отправлено')
     return bot_client.send_message(chat_id=CHAT_ID, text=message)
 
 
@@ -111,13 +115,13 @@ def main():
         try:
             new_homework = get_homework_statuses(current_timestamp)
             if new_homework.get('homeworks'):
-                text_message = parse_homework_status(
-                    new_homework.get('homeworks')[0]
+                send_message(
+                    parse_homework_status(new_homework.get('homeworks')[0]),
+                    bot
                 )
-                send_message(text_message, bot)
-                logger.info(msg=f'Сообщение "{text_message}" отправлено')
             current_timestamp = new_homework.get(
-                'current_date', current_timestamp
+                'current_date',
+                current_timestamp
             )
             time.sleep(1200)
 
