@@ -1,12 +1,15 @@
 import logging
-import time
 from os import getenv
+from random import randint
+import time
 
+from dotenv import load_dotenv
 import requests
 from telegram import Bot
-from dotenv import load_dotenv
 
 load_dotenv()
+
+TESTING = True
 
 PRAKTIKUM_TOKEN = getenv('PRAKTIKUM_TOKEN')
 TELEGRAM_TOKEN = getenv('TELEGRAM_TOKEN')
@@ -102,7 +105,7 @@ def get_homework_statuses(current_timestamp):
 
 
 def send_message(message, bot_client):
-    logger.info(msg=f'Сообщение "{message}" отправлено')
+    logger.info(msg=f'Сообщение "{message}" отправлено', exc_info=True)
     return bot_client.send_message(chat_id=CHAT_ID, text=message)
 
 
@@ -126,11 +129,36 @@ def main():
             time.sleep(1200)
 
         except Exception as error:
-            msg = f'Бот столкнулся с ошибкой: {error}'
-            send_message(msg, bot)
-            logger.error(msg=msg)
-            time.sleep(5)
+            try:
+                send_message(f'Бот столкнулся с ошибкой: {error}', bot)
+                time.sleep(5)
+
+            except Exception as error:
+                logger.error(
+                    msg=(f'При выполнении функции {send_message.__name__} '
+                         f'произошла ошибка {error}'),
+                    exc_info=True
+                )
 
 
 if __name__ == '__main__':
+    if TESTING is True:
+        import unittest
+        from unittest import TestCase, mock
+        RegEx = requests.RequestException
+        options = [
+            {'error': 'testing'},
+            {'homeworks': [{'homework_name': 'test', 'status': 'test'}]},
+            {'homeworks': 1}
+        ]
+        JSON = options[randint(0, 2)]
+
+        class TestReqServerFailure(TestCase):
+            @mock.patch('requests.get')
+            def test_raised(self, rq_get):
+                resp = mock.Mock()
+                resp.json = mock.Mock(return_value=JSON)
+                rq_get.return_value = resp
+                main()
+        unittest.main()
     main()
