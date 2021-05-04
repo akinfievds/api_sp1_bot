@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from os import getenv
 
@@ -25,7 +26,7 @@ STATUS_SUMMARY = 'У вас проверили работу "{name}"!\n\n{verdic
 STATUS_LOG = 'Работа {name}. Вердикт {verdict}'
 STATUS_UNEXPECTED = 'Получен неожиданный статус: {status}'
 
-LOG_FILE = __file__ + '.log'
+LOG_FILE = re.sub(r'[.py]', '', __file__) + '.log'
 
 
 class UnexpectedStatus(Exception):
@@ -118,7 +119,7 @@ def main():
 if __name__ == '__main__':
     logging.basicConfig(
         filename=LOG_FILE,
-        filemode='w',
+        filemode='a',
         level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
