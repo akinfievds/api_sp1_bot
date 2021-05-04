@@ -119,7 +119,7 @@ def main():
 if __name__ == '__main__':
     logging.basicConfig(
         filename=LOG_FILE,
-        filemode='a',
+        filemode='w',
         level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
