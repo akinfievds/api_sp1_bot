@@ -37,6 +37,9 @@ class ServerFailure(Exception):
     pass
 
 
+logger = logging.getLogger(__file__)
+
+
 def parse_homework_status(homework):
     name, status = homework['homework_name'], homework['status']
     if status not in STATUSES_VERDICTS:
@@ -120,5 +123,4 @@ if __name__ == '__main__':
         level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    logger = logging.getLogger(__file__)
     main()
