@@ -1,5 +1,5 @@
 import logging
-import re
+import sys
 import time
 from os import getenv
 
@@ -15,7 +15,14 @@ CHAT_ID = getenv('TELEGRAM_CHAT_ID')
 
 API_URL = 'https://praktikum.yandex.ru/api/user_api/homework_statuses/'
 
-RQ_HEADERS = {'Authorization': f'OAuth {PRAKTIKUM_TOKEN}'}
+REQUEST_HEADERS = {'Authorization': f'OAuth {PRAKTIKUM_TOKEN}'}
+REQUEST_DESCR = ('Параметры запроса:\n'
+                 'response = requests.get(url={url}, '
+                 'headers={headers}, params={params})')
+NETWORK_ERR_MSG = 'Сбой соединения. Ошибка: {error}\n'
+NETWORK_FAILURE_MSG = NETWORK_ERR_MSG + REQUEST_DESCR
+SERVER_ERR_MSG = 'Отказ сервера. Ошибка: {error}\n'
+SERVER_FAILURE_MSG = SERVER_ERR_MSG + REQUEST_DESCR
 STATUSES_VERDICTS = {
     'rejected': 'К сожалению в работе нашлись ошибки.',
     'reviewing': 'Работу взяли на проверку.',
@@ -25,8 +32,7 @@ STATUSES_VERDICTS = {
 STATUS_SUMMARY = 'У вас проверили работу "{name}"!\n\n{verdict}'
 STATUS_LOG = 'Работа {name}. Вердикт {verdict}'
 STATUS_UNEXPECTED = 'Получен неожиданный статус: {status}'
-
-LOG_FILE = re.sub(r'[.py]', '', __file__) + '.log'
+SEND_MESSAGE_LOG = 'Бот пытается отправить сообщение "{message}"'
 
 
 class UnexpectedStatus(Exception):
@@ -41,44 +47,42 @@ logger = logging.getLogger(__file__)
 
 
 def parse_homework_status(homework):
-    name, status = homework['homework_name'], homework['status']
-    if status not in STATUSES_VERDICTS:
-        raise UnexpectedStatus(STATUS_UNEXPECTED.format(status=status))
-    verdict = STATUSES_VERDICTS[status]
-    return STATUS_SUMMARY.format(name=name, verdict=verdict)
+    if homework['status'] not in STATUSES_VERDICTS:
+        raise UnexpectedStatus(
+            STATUS_UNEXPECTED.format(status=homework['status'])
+        )
+    return STATUS_SUMMARY.format(
+        name=homework['homework_name'],
+        verdict=STATUSES_VERDICTS[homework['status']]
+    )
 
 
 def get_homework_statuses(current_timestamp):
-    RQ_PARAMS = dict(url=API_URL, headers=RQ_HEADERS,
-                     params={'from_date': current_timestamp})
-    RQ_DESCR = ('Параметры запроса:\n'
-                'response = requests.get(\n'
-                '  url={url}.\n'
-                '  headers={headers}.\n'
-                '  params={params}).\n'
-                ')')
-    NETWORK_ERR_MSG = 'Сбой соединения. Ошибка: {error}\n'
-    SERVER_ERR_MSG = 'Отказ сервера. Ошибка: {error}\n'
+    REQUEST_PARAMS = dict(url=API_URL, headers=REQUEST_HEADERS,
+                          params={'from_date': current_timestamp})
 
     try:
-        response = requests.get(**RQ_PARAMS)
+        response = requests.get(**REQUEST_PARAMS)
 
     except requests.exceptions.RequestException as error:
-        raise requests.exceptions.ConnectionError(
-            NETWORK_ERR_MSG.format(error=error) + RQ_DESCR.format(**RQ_PARAMS)
-        )
+        tb = sys.exc_info()[2]
+        raise KeyError(
+            NETWORK_FAILURE_MSG.format(error=error, **REQUEST_PARAMS)
+        ).with_traceback(tb)
+
     homework = response.json()
     if 'error' in homework or 'code' in homework:
-        error = homework.get('error') or homework.get('code')
-        logger.error(msg=SERVER_ERR_MSG.format(error=error))
-        raise ServerFailure(
-            SERVER_ERR_MSG.format(error=error) + RQ_DESCR.format(**RQ_PARAMS)
-        )
+        errors = [homework.get('error'), homework.get('code')]
+        for error in errors:
+            if error:
+                raise ServerFailure(
+                    SERVER_FAILURE_MSG.format(errors=error, **REQUEST_PARAMS)
+                )
     return homework
 
 
 def send_message(message, bot_client):
-    logger.info(msg=f'Произведена попытка отправить сообщение "{message}"')
+    logger.info(msg=SEND_MESSAGE_LOG.format(message=message))
     return bot_client.send_message(chat_id=CHAT_ID, text=message)
 
 
@@ -117,6 +121,8 @@ def main():
 
 
 if __name__ == '__main__':
+    LOG_FILE = __file__ + '.log'
+
     logging.basicConfig(
         filename=LOG_FILE,
         filemode='a',
