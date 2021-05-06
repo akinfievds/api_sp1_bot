@@ -1,5 +1,4 @@
 import logging
-import socket
 import time
 from os import getenv
 
@@ -19,10 +18,9 @@ REQUEST_HEADERS = {'Authorization': f'OAuth {PRAKTIKUM_TOKEN}'}
 REQUEST_DESCR = ('Параметры запроса:\n'
                  'response = requests.get(url={url}, '
                  'headers={headers}, params={params})')
-NETWORK_ERR_MSG = 'Сбой соединения. Ошибка: {error}\n'
-NETWORK_FAILURE_MSG = NETWORK_ERR_MSG + REQUEST_DESCR
-SERVER_ERR_MSG = 'Отказ сервера. Ошибка: {error}\n'
-SERVER_FAILURE_MSG = SERVER_ERR_MSG + REQUEST_DESCR
+NETWORK_FAILURE_MSG = 'Сбой соединения. Ошибка: {error}\n' + REQUEST_DESCR
+SERVER_FAILURE_MSG = 'Отказ сервера. Ошибка: {error}\n' + REQUEST_DESCR
+
 STATUSES_VERDICTS = {
     'rejected': 'К сожалению в работе нашлись ошибки.',
     'reviewing': 'Работу взяли на проверку.',
@@ -32,14 +30,15 @@ STATUSES_VERDICTS = {
 STATUS_SUMMARY = 'У вас проверили работу "{name}"!\n\n{verdict}'
 STATUS_LOG = 'Работа {name}. Вердикт {verdict}'
 STATUS_UNEXPECTED = 'Получен неожиданный статус: {status}'
-SEND_MESSAGE_LOG = 'Бот пытается отправить сообщение "{message}"'
 
 INITIALIZATION_LOG = '{:*^40}'.format(' Инициализация бота ')
-SEND_ERROR_MESSAGE = 'Бот столкнулся с ошибкой: {error}'
-SEND_ERROR_LOG = 'При выполнении {function} произошла ошибка {error}'
+SEND_MESSAGE_LOG = 'Бот пытается отправить сообщение "{message}"'
+
+COMMON_ERROR_MESSAGE = 'Бот столкнулся с ошибкой: {error}'
+SEND_FUNCTION_ERROR_LOG = 'При выполнении {function} произошла ошибка {error}'
 
 
-class UnexpectedStatus(Exception):
+class GotUnexpectedStatus(Exception):
     pass
 
 
@@ -53,7 +52,7 @@ logger = logging.getLogger(__file__)
 def parse_homework_status(homework):
     status = homework['status']
     if status not in STATUSES_VERDICTS:
-        raise UnexpectedStatus(
+        raise GotUnexpectedStatus(
             STATUS_UNEXPECTED.format(status=status)
         )
     return STATUS_SUMMARY.format(
@@ -68,12 +67,10 @@ def get_homework_statuses(current_timestamp):
 
     try:
         response = requests.get(**REQUEST_PARAMS)
-
     except requests.exceptions.RequestException as error:
-        raise socket.error(
+        raise ConnectionError(
             NETWORK_FAILURE_MSG.format(error=error, **REQUEST_PARAMS)
         ) from error
-
     homework = response.json()
     for key in ['error', 'code']:
         if key in homework:
@@ -95,7 +92,6 @@ def main():
     bot = Bot(token=TELEGRAM_TOKEN)
     logger.debug(msg=INITIALIZATION_LOG)
     current_timestamp = int(time.time())
-
     while True:
         try:
             new_homework = get_homework_statuses(current_timestamp)
@@ -109,18 +105,16 @@ def main():
                 current_timestamp
             )
             time.sleep(1200)
-
         except Exception as error:
             try:
                 logging.error(
-                    msg=SEND_ERROR_MESSAGE.format(error=error),
+                    msg=COMMON_ERROR_MESSAGE.format(error=error),
                     exc_info=True
                 )
-                send_message(SEND_ERROR_MESSAGE.format(error=error), bot)
-
+                send_message(COMMON_ERROR_MESSAGE.format(error=error), bot)
             except Exception as error:
                 logger.error(
-                    msg=SEND_ERROR_LOG.format(
+                    msg=SEND_FUNCTION_ERROR_LOG.format(
                         function=send_message.__name__,
                         error=error
                     ),
