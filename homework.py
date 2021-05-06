@@ -1,5 +1,5 @@
 import logging
-import sys
+import socket
 import time
 from os import getenv
 
@@ -34,6 +34,10 @@ STATUS_LOG = 'Работа {name}. Вердикт {verdict}'
 STATUS_UNEXPECTED = 'Получен неожиданный статус: {status}'
 SEND_MESSAGE_LOG = 'Бот пытается отправить сообщение "{message}"'
 
+INITIALIZATION_LOG = '{:*^40}'.format(' Инициализация бота ')
+SEND_ERROR_MESSAGE = 'Бот столкнулся с ошибкой: {error}'
+SEND_ERROR_LOG = 'При выполнении {function} произошла ошибка {error}'
+
 
 class UnexpectedStatus(Exception):
     pass
@@ -47,13 +51,14 @@ logger = logging.getLogger(__file__)
 
 
 def parse_homework_status(homework):
-    if homework['status'] not in STATUSES_VERDICTS:
+    status = homework['status']
+    if status not in STATUSES_VERDICTS:
         raise UnexpectedStatus(
-            STATUS_UNEXPECTED.format(status=homework['status'])
+            STATUS_UNEXPECTED.format(status=status)
         )
     return STATUS_SUMMARY.format(
         name=homework['homework_name'],
-        verdict=STATUSES_VERDICTS[homework['status']]
+        verdict=STATUSES_VERDICTS[status]
     )
 
 
@@ -65,19 +70,19 @@ def get_homework_statuses(current_timestamp):
         response = requests.get(**REQUEST_PARAMS)
 
     except requests.exceptions.RequestException as error:
-        tb = sys.exc_info()[2]
-        raise KeyError(
+        raise socket.error(
             NETWORK_FAILURE_MSG.format(error=error, **REQUEST_PARAMS)
-        ).with_traceback(tb)
+        ) from error
 
     homework = response.json()
-    if 'error' in homework or 'code' in homework:
-        errors = [homework.get('error'), homework.get('code')]
-        for error in errors:
-            if error:
-                raise ServerFailure(
-                    SERVER_FAILURE_MSG.format(errors=error, **REQUEST_PARAMS)
+    for key in ['error', 'code']:
+        if key in homework:
+            raise ServerFailure(
+                SERVER_FAILURE_MSG.format(
+                    error=homework[key],
+                    **REQUEST_PARAMS
                 )
+            )
     return homework
 
 
@@ -88,7 +93,7 @@ def send_message(message, bot_client):
 
 def main():
     bot = Bot(token=TELEGRAM_TOKEN)
-    logger.debug(msg='{:*^40}'.format(' Инициализация бота '))
+    logger.debug(msg=INITIALIZATION_LOG)
     current_timestamp = int(time.time())
 
     while True:
@@ -107,14 +112,18 @@ def main():
 
         except Exception as error:
             try:
-                err_msg = f'Бот столкнулся с ошибкой: {error}'
-                logging.error(msg=err_msg, exc_info=True)
-                send_message(err_msg, bot)
+                logging.error(
+                    msg=SEND_ERROR_MESSAGE.format(error=error),
+                    exc_info=True
+                )
+                send_message(SEND_ERROR_MESSAGE.format(error=error), bot)
 
             except Exception as error:
                 logger.error(
-                    msg=(f'При выполнении {send_message.__name__} '
-                         f'произошла ошибка {error}'),
+                    msg=SEND_ERROR_LOG.format(
+                        function=send_message.__name__,
+                        error=error
+                    ),
                     exc_info=True
                 )
             time.sleep(5)
